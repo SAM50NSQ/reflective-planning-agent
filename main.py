@@ -1,55 +1,61 @@
 """
-main.py  -  Run the Stage 0 agent skeleton.
+main.py  -  Run the Stage 2 agent (async).
 
-Usage:
-    python main.py
-    python main.py "Find me two hours of focus time before my 1:1"
-
-No API key needed for Stage 0. This exists to prove the graph runs end to end
-and the critique loop terminates. When you run it you should see the trace go:
-intake -> plan -> critique(FAIL) -> revise -> critique(PASS) -> finalize.
+Mock vs live via USE_MOCK_LLM in .env. In MOCK mode the first plan is
+deliberately bad (overlaps an event) so you can watch the rule-checker catch it
+and the agent revise to a clean plan, all at $0.
 """
 
 from __future__ import annotations
 import sys
+import asyncio
 
 from src.state import AgentState
 from src.calendar_mock import seed_calendar
 from src.graph import build_graph
+from src import costs
+from src.config import USE_MOCK_LLM
 
 
-def run(goal: str) -> AgentState:
+async def run(goal: str) -> AgentState:
+    costs.reset()
     app = build_graph()
-
     initial: AgentState = {
         "goal": goal,
         "calendar": seed_calendar(),
         "proposed_plan": [],
+        "findings": [],
+        "revision_feedback": None,
         "critique": {},
         "passed": False,
         "revision_count": 0,
-        "max_revisions": 3,   # hard cap: the loop can never run more than this
+        "max_revisions": 3,
         "log": [],
     }
-
-    final = app.invoke(initial)
-    return final
+    return await app.ainvoke(initial)
 
 
 def main() -> None:
     goal = sys.argv[1] if len(sys.argv) > 1 else "Schedule two hours of deep work today"
-    final = run(goal)
+    final = asyncio.run(run(goal))
 
-    print("\n=== TRACE ===")
+    print(f"\n=== MODE: {'MOCK ($0)' if USE_MOCK_LLM else 'LIVE'} ===")
+    print("=== TRACE ===")
     for line in final["log"]:
         print(" ", line)
 
-    print("\n=== RESULT ===")
-    print("  passed:        ", final["passed"])
-    print("  revisions used:", final["revision_count"], "/", final["max_revisions"])
-    print("  proposals:")
+    print("\n=== FINAL PLAN ===")
+    print("  status:", "PASSED" if final["passed"] else "STOPPED (cap)")
     for p in final["proposed_plan"]:
-        print(f"    - {p['action']}: {p['title']}  [{p['start']} -> {p['end']}]")
+        print(f"  - {p.get('action')}: {p.get('title')}  [{p.get('start')} -> {p.get('end')}]")
+        print(f"      reason: {p.get('reason')}")
+
+    if final["findings"]:
+        print("\n=== LAST CRITIQUE FINDINGS ===")
+        for f in final["findings"]:
+            print(f"  [{f['source']}/{f['severity']}] {f['message']}")
+
+    print("\n" + costs.tracker.report())
 
 
 if __name__ == "__main__":
