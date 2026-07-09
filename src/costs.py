@@ -1,62 +1,66 @@
-"""
-costs.py  -  A tiny cost meter so you SEE spend accumulate on a $5 budget.
-
-It sums input/output tokens across the run and estimates USD. Prices are
-centralised here; correct them against your provider's pricing page. In mock
-mode nothing is added, so a run reports $0.
-
-IMPORTANT: the price numbers below are estimates and may be out of date.
-Verify at https://www.anthropic.com/pricing (or your provider). [Guessing]
-"""
-
+"""costs.py  -  Cost meter. Prices corrected to current rates (per MTok)."""
 from __future__ import annotations
+import logging
 
-# USD per 1,000,000 tokens. VERIFY THESE. [Guessing]
+log = logging.getLogger("agent.costs")
+
+# USD per 1,000,000 tokens. Source: Anthropic pricing page.
+#   Haiku 4.5:  $1 in / $5 out
+#   Sonnet 4.5: $3 in / $15 out
+#   Opus 4.x:   $5 in / $25 out
 PRICES = {
-    "haiku":   {"input": 0.80, "output": 4.00},
-    "sonnet":  {"input": 3.00, "output": 15.00},
+    "haiku":   {"input": 1.00, "output": 5.00},
+    "sonnet":  {"input": 3.00, "output": 15.00},  # Sonnet 4.5
+    "opus":    {"input": 5.00, "output": 25.00},
     "default": {"input": 1.00, "output": 5.00},
 }
 
 
 def _rate(model_name: str) -> dict:
     m = (model_name or "").lower()
-    if "haiku" in m:
-        return PRICES["haiku"]
-    if "sonnet" in m:
-        return PRICES["sonnet"]
+    for key in ("haiku", "sonnet", "opus"):
+        if key in m:
+            return PRICES[key]
     return PRICES["default"]
 
 
 class CostTracker:
+    """Meters per-model so a run that mixes Haiku (planner) and Sonnet (judge)
+    is priced correctly for each."""
     def __init__(self) -> None:
+        self.reset()
+
+    def reset(self) -> None:
         self.calls = 0
-        self.input_tokens = 0
-        self.output_tokens = 0
-        self.model = None
+        self.by_model: dict[str, dict] = {}   # model -> {calls,input,output}
 
     def add(self, model_name: str, input_tokens: int, output_tokens: int) -> None:
-        self.model = model_name
         self.calls += 1
-        self.input_tokens += int(input_tokens or 0)
-        self.output_tokens += int(output_tokens or 0)
+        m = self.by_model.setdefault(model_name, {"calls": 0, "input": 0, "output": 0})
+        m["calls"] += 1
+        m["input"] += int(input_tokens or 0)
+        m["output"] += int(output_tokens or 0)
+        log.debug("cost.add model=%s in=%s out=%s (total $%.4f)", model_name,
+                  input_tokens, output_tokens, self.estimate_usd())
 
     def estimate_usd(self) -> float:
-        r = _rate(self.model)
-        return self.input_tokens / 1e6 * r["input"] + self.output_tokens / 1e6 * r["output"]
+        total = 0.0
+        for name, m in self.by_model.items():
+            r = _rate(name)
+            total += m["input"] / 1e6 * r["input"] + m["output"] / 1e6 * r["output"]
+        return total
 
     def report(self) -> str:
         if self.calls == 0:
-            return "[cost] no LLM calls (mock mode) -> $0.00"
-        return (f"[cost] {self.calls} call(s) | in {self.input_tokens} tok | "
-                f"out {self.output_tokens} tok | est ${self.estimate_usd():.4f} "
-                f"(model={self.model}; verify prices)")
+            return "[cost] no LLM calls recorded -> $0.00"
+        parts = [f"[cost] {self.calls} call(s), est ${self.estimate_usd():.4f} (verify prices)"]
+        for name, m in self.by_model.items():
+            parts.append(f"    {name}: {m['calls']} call(s), in {m['input']} / out {m['output']} tok")
+        return "\n".join(parts)
 
 
-# One tracker per process run. main.py resets it at the start of each run.
 tracker = CostTracker()
 
 
 def reset() -> None:
-    global tracker
-    tracker = CostTracker()
+    tracker.reset()
