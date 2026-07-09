@@ -49,8 +49,14 @@ async def clarify_node(state: AgentState) -> dict:
     log.info("NODE clarify (%d/%d) -> interrupt asking: %s", n, state["max_clarifications"], q)
     answer = interrupt({"type": "clarification", "question": q})     # PAUSES here
     log.info("clarify resumed with answer: %r", answer)
+    # NOTE: we deliberately do NOT clear `revision_feedback` here. The critique
+    # node put the judge's findings there, and the planner needs them on the next
+    # attempt. Clearing it meant the planner replanned blind: the judge would say
+    # "you must propose adding or moving the lunch block", the planner never saw
+    # it, took the `no_change_needed` escape hatch, and the turn died. The system
+    # was throwing away its own critic's catch.
     return {"gathered_info": [f"{q} -> {answer}"], "pending_question": None,
-            "needs_info": False, "revision_feedback": None, "clarify_count": n,
+            "needs_info": False, "clarify_count": n,
             "log": [f"[clarify] asked {q!r}, got {answer!r}"]}
 
 

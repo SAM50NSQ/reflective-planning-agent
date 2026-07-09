@@ -1,7 +1,7 @@
 # Reflective Planning Agent
 
-A planning agent that proposes calendar changes, **critiques its own plan with two
-independent critics**, revises, and asks a human before it touches anything that
+A planning agent that proposes calendar changes, critiques its own plan with two
+independent critics, revises, and asks a human before it touches anything that
 matters.
 
 The calendar is just a domain where constraints are legible. The point is the
@@ -23,24 +23,28 @@ START -> intake -> plan -> critique -> [clarify] -> plan
 ## Run it
 
 ```bash
-python -m venv venv && source venv/Scripts/activate   # Git Bash on Windows
+python -m venv venv && source venv/Scripts/activate
 pip install -r requirements.txt
-cp .env.example .env            # set a real model id + key for live mode
+cp .env            # set a real model id + key for live mode
 
 python -m tests.smoke           # free, no API. Must print ALL PASS.
 python chat.py                  # conversational session
 python main.py "Find me two hours of deep work"   # single goal
 ```
 
-`USE_MOCK_LLM=true` (the default) runs the whole graph with canned model
-responses at **$0**. Set it to `false` for live runs. A live turn costs roughly
-$0.02 to $0.05.
+`USE_MOCK_LLM=true` in env
+(the default) runs the whole graph with canned model responses at $0. 
+Set it to `false` for live runs. A live turn costs roughly $0.02 to $0.05.
 
 ---
 
-## A real session
+## A real test session
 
 Verbatim, trimmed to the decisions. The calendar has `Lunch 13:00-14:00`.
+
+Reproducibility: after the fix described below, this goal completed successfully
+on 3 of 3 live runs (identical answer text, same mock calendar). Before the fix it
+failed roughly half the time. Three runs of one phrasing is evidence, not proof.
 
 ```
 you > Need to have lunch with a client today
@@ -81,71 +85,77 @@ route    -> confirm      (a removal is destructive)
 
 ## Design decisions
 
-**Two critics, because each is blind where the other sees.**
+Two critics, because each is blind where the other sees.
 `rule_checks()` is plain Python: overlaps, working hours, end-after-start,
-self-collision, removal of events that do not exist. Fast, free, explainable. The
-LLM judge assesses what code cannot: is this timing sensible, does the plan
-actually serve the goal.
+self-collision, removal of events that do not exist. Fast, free, explainable.
+The LLM judge assesses what code cannot: is this timing sensible,
+does the plan actually serve the goal.
 
-**Rules evaluate the post-plan world, not the current one.**
+Rules evaluate the post-plan world, not the current one.
 `apply_plan()` simulates the proposals first. Without it, a correct two-step plan
 (move `Lunch` aside, add `Client Lunch` in the freed slot) is rejected for
 "overlapping Lunch". A checker that cannot simulate the change it is validating
 will veto correct plans, and its confidence makes that worse than an LLM's
 hedging.
 
-**Every exit edge from `critique` has a termination argument.**
+Every exit edge from `critique` has a termination argument.
 `max_revisions` bounds regeneration, `max_clarifications` bounds questions, and
 `confirm` cannot be re-entered once capped. Loop safety is a property of every
-edge, not of the node. Both loops here were once unbounded.
+edge, not of the node. Both loops here were previously unbounded.
 
-**Destructive actions require a human.**
+Destructive actions require a human.
 `move` and `remove` route through `confirm`. A plain `add` into a free slot fires
 no interrupt at all. Ask when it matters, act when it does not.
 
-**Model choice is per-role and lives in `.env`.**
+Model choice is per-role and lives in `.env`.
 A cheap planner (`claude-haiku-4-5`) and a stronger judge (`claude-sonnet-4-5`)
 are one config line each, via LangChain's `init_chat_model`. Swapping provider
 changes no code. The judge is where quality is worth paying for.
 
-**Structured output, not string parsing.**
+Structured output, not string parsing.
 The planner returns a validated Pydantic `Plan` with three distinct outcomes:
 proposals, `needs_input` + `question`, or `no_change_needed`. Earlier,
 `len(proposals) == 0` meant both "ask me" and "nothing to do", so the agent asked
 a generic question instead of surfacing its own reasoning.
 
-**The ReAct loop is hand-written** (`agent_loop.py`), not `create_react_agent`
-(deprecated in LangGraph 1.0). About forty lines, and its termination is explicit.
+The ReAct loop is hand-written (`agent_loop.py`), not `create_agent`
 
 ---
 
 ## What actually broke
 
-Every one of these was found by running the agent, not by reading the code.
+The rules produced a confident false positive. They vetoed a correct
+move-then-add plan that the judge had approved. The judge was right;
+the checker was buggy.
+So much for "deterministic checks are always the authority".
 
-**The rules produced a confident false positive.** They vetoed a correct
-move-then-add plan that the judge had approved. The judge was right; the checker
-was buggy. So much for "deterministic checks are always the authority".
-
-**The judge caught planner fabrications the rules were structurally blind to.**
+The judge caught planner fabrications the rules were structurally blind to.
 With zero proposals there is nothing for a rule to check. Across four runs the
 planner asserted a "client lunch" already existed. The judge caught it every time.
 
-**The judge is not deterministic, and it confabulates.** On one goal it rejected a
+The judge is not deterministic, and it hallucinates. On one goal it rejected a
 14:00-16:00 block for leaving no buffer before a 1:1. On a differently-phrased
 goal it accepted the same block, praising how it "avoids early morning fatigue"
 and allows "time to enter flow state", about a user it knows nothing about. Moving
 from Haiku to Sonnet reduced the noise. It did not remove it. The deterministic
 rules exist precisely because the judge cannot be trusted alone.
 
-**An agent with no way to express the right answer will invent one.** The action
-schema was `add | move` only. Asked to *replace* an event, the planner attempted a
+An agent with no way to express the right answer will invent one. The action
+schema was `add | move` only. Asked to "replace" an event, the planner attempted a
 rename, was rejected, then retreated to "no change needed" and hallucinated that
 the personal lunch was the client lunch. Adding `remove` fixed the behaviour.
 Telling a model what it cannot do, without telling it how to do the thing, just
 makes it retreat.
 
-**Mock mode saved money and hid bugs.** Every failure surfaced on the paid path: a
+The system threw away its own critic's findings. When the planner returned no
+proposals, `critique` recorded the judge's reasoning ("you must propose adding or
+moving the lunch block") and the `clarify` node then wiped it before replanning.
+The planner replanned blind, took the cheapest escape hatch in the schema
+(`no_change_needed`), and the turn died. The same goal succeeded or failed
+depending on whether a second clarifying question happened to nudge it. A critic
+whose output is not routed back to the actor is decoration.
+
+Mock mode saved money and hid bugs. Every failure surfaced on the paid path: a
 404 model id, a cost meter that silently under-reported, two unbounded loops, a
 judge with no date context, a deleted system prompt. The mock path never called
 the judge, so the code that cost money was the code with no coverage.
@@ -179,6 +189,11 @@ the judge, so the code that cost money was the code with no coverage.
   to make the false claim unrepresentable, not to ask nicely.
 - Moves and removes fall back to matching by title when `event_id` is absent.
   Fragile.
+- Runs vary. The planner (Haiku) always asks at least one clarifying question for
+  the demo goal, and the wording of its question differs between runs. Feeding the
+  critic's findings back and constraining `no_change_needed` took this goal from
+  roughly 50% to 3/3. That is not determinism, and no amount of prompting will
+  make it so. A stronger planner or a narrower action space would.
 
 ## Next
 

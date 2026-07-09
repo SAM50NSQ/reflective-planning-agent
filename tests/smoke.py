@@ -156,11 +156,37 @@ def test_termination() -> None:
           route_after_critique({**base, "needs_info": False, "pending_question": None}) == "revise")
 
 
+def test_feedback_survives_clarify() -> None:
+    """The judge's findings must reach the planner after a clarification.
+
+    Regression: clarify_node used to return revision_feedback=None, wiping the
+    critic's findings. The planner then replanned blind and took the
+    `no_change_needed` escape hatch. The system threw away its own critic's catch.
+    """
+    print("\n[5] clarify preserves critic feedback")
+    from src import graph
+
+    orig = graph.interrupt
+    graph.interrupt = lambda payload: "the user's answer"
+    try:
+        state = {"pending_question": "when?", "clarify_count": 0,
+                 "max_clarifications": 2, "revision_feedback": "- [judge] propose a change"}
+        out = asyncio.run(graph.clarify_node(state))
+        check("clarify does not null revision_feedback", "revision_feedback" not in out)
+        check("clarify records the answer", "the user's answer" in out["gathered_info"][0])
+        check("clarify increments its counter", out["clarify_count"] == 1)
+    except Exception as e:  # noqa: BLE001
+        check("clarify_node executes", False, repr(e))
+    finally:
+        graph.interrupt = orig
+
+
 def main() -> int:
     test_imports()
     test_judge_path()
     test_rules()
     test_termination()
+    test_feedback_survives_clarify()
     print("\n" + ("ALL PASS" if not failures else f"{len(failures)} FAILURE(S): {failures}"))
     return 1 if failures else 0
 

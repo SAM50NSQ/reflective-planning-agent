@@ -32,8 +32,10 @@ PLANNER_SYS = (
     "  1. proposals: concrete ISO-timed changes inside working hours (09:00-18:00);\n"
     "  2. needs_input=true with a single specific `question`, if a critical detail is "
     "missing or the goal needs a capability you lack;\n"
-    "  3. no_change_needed=true, ONLY if the existing calendar already satisfies the "
-    "goal exactly. Do not use this to avoid work."
+    "  3. no_change_needed=true, ONLY if an existing event already matches the goal in "
+    "BOTH time AND purpose. A generic 'Lunch' block is NOT a client lunch, and a free "
+    "slot is NOT a scheduled event. If the goal names a new commitment, you must either "
+    "propose it or ask. Never use no_change_needed to avoid work."
 )
 
 
@@ -87,7 +89,8 @@ def _user_prompt(state: AgentState) -> str:
         base += "\n\nInformation gathered from the user so far:\n" + "\n".join(f"- {i}" for i in info)
     fb = state.get("revision_feedback")
     if fb:
-        base += f"\n\nYour previous plan was rejected. Fix specifically:\n{fb}"
+        base += ("\n\nA critic rejected your previous attempt. You MUST address these "
+                 f"points; do not repeat the same answer:\n{fb}")
     return base
 
 
