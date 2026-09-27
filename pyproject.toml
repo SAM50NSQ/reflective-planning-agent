@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "reflective-planning-agent"
+version = "0.1.0"
+description = "Planning agent with a ReAct loop, rule + LLM validation, and human approval"
+readme = "README.md"
+requires-python = ">=3.10"
+dynamic = ["dependencies"]
+
+[project.scripts]
+rpa = "src.cli:main"
+rpa-chat = "src.cli:chat"
+
+[tool.setuptools]
+packages = ["src"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
