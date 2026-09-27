@@ -22,19 +22,54 @@ START -> intake -> plan -> critique -> [clarify] -> plan
 
 ## Run it
 
-```bash
-python -m venv venv && source venv/Scripts/activate
-pip install -r requirements.txt
-cp .env            # set a real model id + key for live mode
+Requires Python 3.10+.
 
-python -m tests.smoke           # free, no API. Must print ALL PASS.
-python chat.py                  # conversational session
-python main.py "Find me two hours of deep work"   # single goal
+```bash
+python3 -m venv .venv
+source .venv/bin/activate        # Windows PowerShell: .venv\Scripts\Activate.ps1
+pip install -e .                 # dependencies, plus the `rpa` and `rpa-chat` commands
+
+python -m tests.smoke            # free, no API. Must print ALL PASS.
+rpa-chat                         # conversational session
+rpa "Find me two hours of deep work"   # single goal
 ```
 
-`USE_MOCK_LLM=true` in env
-(the default) runs the whole graph with canned model responses at $0. 
-Set it to `false` for live runs. A live turn costs roughly $0.02 to $0.05.
+With no `.env` at all, everything runs in mock mode: the whole graph executes
+with canned model responses at $0. A live turn costs roughly $0.02 to $0.05.
+
+Inside `rpa-chat`:
+
+| command | effect |
+| --- | --- |
+| `:info` | show what the agent has learned this session |
+| `:new` | start a fresh session and forget gathered info |
+| `:abort` | abandon the question the agent is currently asking |
+| `:quit` | exit, including while the agent is asking something |
+
+### Configuration
+
+Create a `.env` file in the directory you run from:
+
+```ini
+# Mock mode ($0). Set to false for live runs.
+USE_MOCK_LLM=true
+
+# Live mode
+ANTHROPIC_API_KEY=sk-ant-...
+MODEL_PROVIDER=anthropic
+PLANNER_MODEL=claude-haiku-4-5     # cheap planner
+JUDGE_MODEL=claude-sonnet-4-5      # stronger judge; quality is worth paying for here
+DEFAULT_MODEL=claude-haiku-4-5     # fallback for any role without its own setting
+
+# Optional
+LOG_LEVEL=WARNING                  # INFO shows each step; DEBUG adds tool calls and token counts
+REFERENCE_DATE=2026-07-08          # "today" for the mock calendar
+```
+
+`.env` is read from the current directory (or a parent of it), then from
+`$SNAP_USER_DATA` when running as a snap, then from the source tree. Real
+environment variables always win. `.env` is git-ignored; keep your key out of
+commits.
 
 ---
 
@@ -167,6 +202,8 @@ the judge, so the code that cost money was the code with no coverage.
 
 | file | role |
 | --- | --- |
+| `src/cli.py` | `rpa` and `rpa-chat` entry points; `one_turn()` runs a goal and answers interrupts |
+| `src/config.py` | model and runtime settings; finds `.env` for installed and snap builds |
 | `src/graph.py` | nodes, edges, interrupts, termination guards |
 | `src/agent_loop.py` | hand-wired reason/act/observe loop + metered structured calls |
 | `src/planner.py` | the planning node: asks, proposes, or declares no-change |
@@ -198,6 +235,6 @@ the judge, so the code that cost money was the code with no coverage.
 ## Next
 
 - FastAPI over the same graph: swap `MemorySaver` for a persistent checkpointer
-  and map `thread_id` to a session. `one_turn()` is already shaped like a handler.
+  and map `thread_id` to a session. `one_turn()` in `src/cli.py` is already shaped like a handler.
 - A structured user profile so the agent stops re-asking what it has been told.
 - Real Google Calendar behind the existing tool interface.
