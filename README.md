@@ -24,6 +24,8 @@ START -> intake -> plan -> critique -> [clarify] -> plan
 
 Requires Python 3.10+.
 
+sudo snap install reflective-planning-agent --edge
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate        # Windows PowerShell: .venv\Scripts\Activate.ps1
