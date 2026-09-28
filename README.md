@@ -22,9 +22,17 @@ START -> intake -> plan -> critique -> [clarify] -> plan
 
 ## Run it
 
-Requires Python 3.10+.
+### Install as a snap
 
+```bash
 sudo snap install reflective-planning-agent --edge
+reflective-planning-agent "Find me two hours of deep work"   # single goal
+reflective-planning-agent.chat                              # conversational session
+```
+
+For live mode, put your `.env` in `~/snap/reflective-planning-agent/current/`.
+
+Requires Python 3.10+.
 
 ```bash
 python3 -m venv .venv
