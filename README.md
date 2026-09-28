@@ -32,6 +32,8 @@ reflective-planning-agent.chat                              # conversational ses
 
 For live mode, put your `.env` in `~/snap/reflective-planning-agent/current/`.
 
+### Install from source
+
 Requires Python 3.10+.
 
 ```bash

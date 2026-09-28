@@ -1,6 +1,6 @@
 name: reflective-planning-agent
 base: core24
-version: '0.1.0'
+version: '0.1.1'
 summary: Planning agent that critiques its own plans and asks before acting
 description: |
   Proposes calendar changes, checks them with deterministic rules and an LLM
@@ -8,6 +8,7 @@ description: |
   Runs in mock mode ($0) by default. For live mode, put a .env file in
   ~/snap/reflective-planning-agent/current/ (see README).
 grade: devel
+license: MIT
 confinement: strict
 
 apps:
